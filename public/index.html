@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>股票数据服务 API</title>
+  <style>
+    body {
+      font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    h1 {
+      color: #2c3e50;
+      border-bottom: 2px solid #eee;
+      padding-bottom: 10px;
+    }
+
+    h2 {
+      color: #3498db;
+      margin-top: 30px;
+    }
+
+    .endpoint {
+      background-color: #f8f9fa;
+      border-left: 4px solid #3498db;
+      padding: 10px 15px;
+      margin: 15px 0;
+      border-radius: 0 4px 4px 0;
+    }
+
+    .endpoint h3 {
+      margin-top: 0;
+      color: #2c3e50;
+    }
+
+    .endpoint p {
+      margin-bottom: 5px;
+    }
+
+    code {
+      background-color: #f1f1f1;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-family: Consolas, Monaco, 'Andale Mono', monospace;
+    }
+
+    .example {
+      margin-top: 10px;
+    }
+
+    .example a {
+      color: #3498db;
+      text-decoration: none;
+    }
+
+    .example a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>股票数据服务 API</h1>
+  <p>这是一个基于Yahoo Finance的股票数据服务API，提供股票价格、历史数据、公司信息等数据。</p>
+
+  <h2>API 端点</h2>
+
+  <div class="endpoint">
+    <h3>获取股票历史数据</h3>
+    <p><code>GET /api/yahoo/history/:symbol</code></p>
+    <p>获取指定股票的历史价格数据。</p>
+    <p>参数：</p>
+    <ul>
+      <li><code>period</code>: 时间范围 (1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, max)</li>
+      <li><code>interval</code>: 数据间隔 (1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo)</li>
+    </ul>
+    <div class="example">
+      <p>示例: <a href="/api/yahoo/history/AAPL?period=1y&interval=1d"
+          target="_blank">/api/yahoo/history/AAPL?period=1y&interval=1d</a></p>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <h3>获取股票全部信息</h3>
+    <p><code>GET /api/yahoo/all-info/:symbol</code></p>
+    <p>获取股票的所有可用信息，包括基本信息、财务数据、分析师评级等。</p>
+    <div class="example">
+      <p>示例: <a href="/api/yahoo/all-info/AAPL" target="_blank">/api/yahoo/all-info/AAPL</a></p>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <h3>获取财报日期</h3>
+    <p><code>GET /api/yahoo/earnings-dates/:symbol</code></p>
+    <p>获取公司的财报发布日期。</p>
+    <div class="example">
+      <p>示例: <a href="/api/yahoo/earnings-dates/AAPL" target="_blank">/api/yahoo/earnings-dates/AAPL</a></p>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <h3>获取完整财报数据</h3>
+    <p><code>GET /api/yahoo/earnings-full/:symbol</code></p>
+    <p>获取公司的完整财报数据。</p>
+    <div class="example">
+      <p>示例: <a href="/api/yahoo/earnings-full/AAPL" target="_blank">/api/yahoo/earnings-full/AAPL</a></p>
+    </div>
+  </div>
+
+  <footer style="margin-top: 50px; text-align: center; color: #7f8c8d; font-size: 0.9em;">
+    <p>© 2024 股票数据服务 API | 基于 Yahoo Finance 数据</p>
+  </footer>
+</body>
+
+</html>

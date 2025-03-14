@@ -6,7 +6,7 @@ import HomePage from '../pages/HomePage';
 import StockDetailPage from '../pages/StockDetailPage';
 import MarketOverviewPage from '../pages/MarketOverviewPage';
 import { StockProvider } from '../context/StockContext';
-import { ThemeProvider } from '../context/ThemeProvider';
+import ThemeProvider from '../context/ThemeProvider';
 
 const AppRoutes: React.FC = () => {
   return (

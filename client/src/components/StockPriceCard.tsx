@@ -155,7 +155,9 @@ export const StockPriceCard: React.FC<StockPriceCardProps> = ({
             <CardDescription>Last Price</CardDescription>
           </div>
           <div className="text-right">
-            <div className="text-2xl font-bold">${data?.price.toFixed(2)}</div>
+            <div className="text-2xl font-bold">
+              ${data?.price !== undefined ? data.price.toFixed(2) : 'N/A'}
+            </div>
             {data?.change !== undefined && (
               <div
                 className={`flex items-center ${
@@ -168,8 +170,11 @@ export const StockPriceCard: React.FC<StockPriceCardProps> = ({
                   <TrendingDown className="h-4 w-4 mr-1" />
                 )}
                 <span>
-                  ${Math.abs(data.change).toFixed(2)} (
-                  {Math.abs(data.changePercent || 0).toFixed(2)}%)
+                  ${data.change !== undefined ? Math.abs(data.change).toFixed(2) : '0.00'} (
+                  {data.changePercent !== undefined
+                    ? Math.abs(data.changePercent).toFixed(2)
+                    : '0.00'}
+                  %)
                 </span>
               </div>
             )}
@@ -184,7 +189,7 @@ export const StockPriceCard: React.FC<StockPriceCardProps> = ({
           </div>
           <div>
             <div className="text-muted-foreground">Market Cap</div>
-            <div>{formatLargeNumber(data?.marketCap)}</div>
+            <div>{formatLargeNumber(data?.marketCap) || 'N/A'}</div>
           </div>
         </div>
       </CardContent>

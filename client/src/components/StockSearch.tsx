@@ -44,19 +44,18 @@ export const StockSearch: React.FC<StockSearchProps> = ({
         // 使用 yahooFinanceClient 来搜索股票
         const result = await yahooFinanceClient.searchStocks(query);
         // 从响应中提取股票列表
-        const stockResults = result.quotes || [];
+        const stockResults = result.results || [];
         // 过滤和转换结果
         const validResults = stockResults
           .filter(
-            (item: YahooSearchResultItem) =>
-              item.symbol && item.shortname && item.quoteType === 'EQUITY',
+            (item: YahooSearchResultItem) => item.symbol && (item.name || item.type === 'EQUITY')
           )
           .map(
             (item: YahooSearchResultItem): ProcessedSearchResult => ({
               symbol: item.symbol,
-              name: item.shortname || item.longname || item.symbol,
+              name: item.name || item.symbol,
               exchange: item.exchange || '',
-            }),
+            })
           );
         setResults(validResults);
       } catch (error) {

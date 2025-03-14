@@ -1,5 +1,5 @@
 // src/pages/HomePage.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StockSearch } from '../components/StockSearch';
 import { StockPriceCard } from '../components/StockPriceCard';
 import { StockWatchlist } from '../components/StockWatchlist';
@@ -10,20 +10,51 @@ import { TrendingUp, DollarSign, LineChart } from 'lucide-react';
 
 const HomePage: React.FC = () => {
   const [selectedTab, setSelectedTab] = useState('trending');
-  const { data: trendingData, loading: trendingLoading } = useTrendingStocks('US', 0);
-  const { data: gainersData, loading: gainersLoading } = useDailyGainers(5, 'US', 0);
+  const {
+    data: trendingData,
+    loading: trendingLoading,
+    error: trendingError,
+  } = useTrendingStocks('US', 0);
+  const {
+    data: gainersData,
+    loading: gainersLoading,
+    error: gainersError,
+  } = useDailyGainers(5, 'US', 0);
 
-  // 从趋势数据中提取股票符号
-  const trendingSymbols =
-    trendingData?.finance?.result?.[0]?.quotes?.map((item: any) => item.symbol) || [];
+  // 调试日志
+  useEffect(() => {
+    if (trendingData) {
+      console.log('热门股票数据:', trendingData);
+    }
+    if (trendingError) {
+      console.error('热门股票获取错误:', trendingError);
+    }
 
-  // 从涨幅数据中提取股票符号
-  const gainersSymbols =
-    gainersData?.finance?.result?.quotes?.map((item: any) => item.symbol) || [];
+    if (gainersData) {
+      console.log('涨幅最大股票数据:', gainersData);
+    }
+    if (gainersError) {
+      console.error('涨幅最大股票获取错误:', gainersError);
+    }
+  }, [trendingData, trendingError, gainersData, gainersError]);
+
+  // 从趋势数据中提取股票符号 - 修正数据结构路径
+  const trendingSymbols = trendingData?.quotes?.map((item: any) => item.symbol) || [];
+
+  // 从涨幅数据中提取股票符号 - 修正数据结构路径
+  const gainersSymbols = gainersData?.quotes?.map((item: any) => item.symbol) || [];
 
   return (
     <div className="container mx-auto p-4 space-y-6">
       <h1 className="text-3xl font-bold">股票市场概览</h1>
+
+      {/* 显示可能的API错误 */}
+      {(trendingError || gainersError) && (
+        <div className="p-4 mb-4 text-sm rounded-lg bg-red-100 text-red-800">
+          {trendingError && <p>热门股票获取失败: {trendingError.message}</p>}
+          {gainersError && <p>涨幅最大股票获取失败: {gainersError.message}</p>}
+        </div>
+      )}
 
       <div className="w-full max-w-md">
         <StockSearch

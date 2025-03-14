@@ -31,9 +31,44 @@ interface APIError {
 // Yahoo Finance API 客户端
 class YahooFinanceClient {
   private readonly baseURL: string;
+  private readonly maxRetries: number;
+  private readonly retryDelay: number;
 
-  constructor(baseURL: string = `${API_BASE_URL}/yahoo`) {
+  constructor(
+    baseURL: string = `${API_BASE_URL}/yahoo`,
+    maxRetries: number = 3,
+    retryDelay: number = 1000
+  ) {
     this.baseURL = baseURL;
+    this.maxRetries = maxRetries;
+    this.retryDelay = retryDelay;
+  }
+
+  // 添加重试逻辑的包装函数
+  private async withRetry<T>(operation: () => Promise<T>): Promise<T> {
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      try {
+        // 如果不是第一次尝试，记录重试信息
+        if (attempt > 1) {
+          console.log(`重试请求 (${attempt}/${this.maxRetries})...`);
+        }
+
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        console.error(`请求失败 (尝试 ${attempt}/${this.maxRetries}):`, error);
+
+        // 如果还有重试次数，等待一段时间后重试
+        if (attempt < this.maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, this.retryDelay * attempt));
+        }
+      }
+    }
+
+    // 所有重试都失败
+    return this.handleError(lastError);
   }
 
   // 错误处理工具方法
@@ -66,24 +101,22 @@ class YahooFinanceClient {
 
   // 1. 获取单个股票价格
   async getStockPrice(symbol: string): Promise<StockData> {
-    try {
-      const response = await axios.get<StockData>(`${this.baseURL}/stock/${symbol}`);
+    return this.withRetry(async () => {
+      // 修改为使用专门的price端点，而不是all-info端点
+      const response = await axios.get<StockData>(`${this.baseURL}/price/${symbol}`);
       return response.data;
-    } catch (error) {
-      return this.handleError(error);
-    }
+    });
   }
 
   // 2. 获取多个股票价格
   async getMultipleStockPrices(symbols: string[]): Promise<StockData[]> {
-    try {
-      const response = await axios.get<StockData[]>(`${this.baseURL}/stocks`, {
+    return this.withRetry(async () => {
+      // 使用新的批量获取接口
+      const response = await axios.get(`${this.baseURL}/prices`, {
         params: { symbols: symbols.join(',') },
       });
       return response.data;
-    } catch (error) {
-      return this.handleError(error);
-    }
+    });
   }
 
   // 3. 获取历史数据
@@ -92,95 +125,88 @@ class YahooFinanceClient {
     period: string = '1mo',
     interval: string = '1d'
   ): Promise<HistoricalDataPoint[]> {
-    try {
-      const response = await axios.get<HistoricalDataPoint[]>(
-        `${this.baseURL}/stock/${symbol}/history`,
-        { params: { period, interval } }
-      );
+    return this.withRetry(async () => {
+      const response = await axios.get<HistoricalDataPoint[]>(`${this.baseURL}/history/${symbol}`, {
+        params: { period, interval },
+      });
       return response.data;
-    } catch (error) {
-      return this.handleError(error);
-    }
+    });
   }
 
   // 4. 搜索建议
   async getSearchSuggestions(query: string) {
-    try {
-      const response = await axios.get(`${this.baseURL}/autoc`, {
-        params: { query },
-      });
+    return this.withRetry(async () => {
+      const response = await axios.get(`${this.baseURL}/search/${query}`);
       return response.data;
-    } catch (error) {
-      return this.handleError(error);
-    }
+    });
   }
 
-  // 5. 获取图表数据
+  // 5. 获取图表数据 - 使用history端点替代，因为后端没有专门的chart端点
   async getChartData(
     symbol: string,
     interval: string = '1d',
     range: string = '1mo',
     includePrePost: boolean = false
   ) {
-    try {
-      const response = await axios.get(`${this.baseURL}/chart/${symbol}`, {
-        params: { interval, range, includePrePost },
+    return this.withRetry(async () => {
+      const response = await axios.get(`${this.baseURL}/historical/${symbol}`, {
+        params: { interval, period: range, includePrePost },
       });
       return response.data;
-    } catch (error) {
-      return this.handleError(error);
-    }
+    });
   }
 
-  // 6. 获取报价摘要
+  // 6. 获取报价摘要 - 使用summary端点替代
   async getQuoteSummary(symbol: string, modules: string[]) {
-    try {
-      const response = await axios.get(`${this.baseURL}/summary/${symbol}`, {
-        params: { modules: modules.join(',') },
-      });
-      return response.data;
-    } catch (error) {
-      return this.handleError(error);
-    }
+    return this.withRetry(async () => {
+      // 如果调用者需要完整数据，仍使用all-info端点
+      if (modules && modules.length > 0 && modules.includes('all')) {
+        const response = await axios.get(`${this.baseURL}/all-info/${symbol}`);
+        return response.data;
+      } else {
+        // 否则使用summary端点获取更精简的数据
+        const response = await axios.get(`${this.baseURL}/summary/${symbol}`);
+        return response.data;
+      }
+    });
   }
 
-  // 7. 搜索股票
+  // 7. 搜索股票 - 使用搜索端点
   async searchStocks(query: string, quotesCount: number = 6, newsCount: number = 4) {
-    try {
+    return this.withRetry(async () => {
       const response = await axios.get(`${this.baseURL}/search`, {
-        params: { query, quotesCount, newsCount },
+        params: { query, limit: quotesCount },
       });
       return response.data;
-    } catch (error) {
-      return this.handleError(error);
-    }
+    });
   }
 
   // 8. 获取推荐股票
   async getRecommendations(symbol: string) {
-    try {
+    return this.withRetry(async () => {
       const response = await axios.get(`${this.baseURL}/recommendations/${symbol}`);
       return response.data;
-    } catch (error) {
-      return this.handleError(error);
-    }
+    });
   }
 
   // 9. 获取热门股票
-  async getTrendingStocks(region: string = 'US') {
-    try {
+  async getTrendingSymbols(region: string = 'US') {
+    return this.withRetry(async () => {
       const response = await axios.get(`${this.baseURL}/trending`, {
         params: { region },
       });
       return response.data;
-    } catch (error) {
-      return this.handleError(error);
-    }
+    });
+  }
+
+  // 获取热门股票 (别名方法)
+  async getTrendingStocks(region: string = 'US') {
+    return this.getTrendingSymbols(region);
   }
 
   // 10. 获取期权数据
   async getOptionsData(symbol: string, date?: string, strikeMin?: number, strikeMax?: number) {
-    try {
+    return this.withRetry(async () => {
       const params: Record<string, any> = {};
       if (date) params.date = date;
       if (strikeMin !== undefined) params.strikeMin = strikeMin;
@@ -188,36 +214,30 @@ class YahooFinanceClient {
 
       const response = await axios.get(`${this.baseURL}/options/${symbol}`, { params });
       return response.data;
-    } catch (error) {
-      return this.handleError(error);
-    }
+    });
   }
 
   // 11. 获取洞察信息
   async getInsights(symbol: string) {
-    try {
+    return this.withRetry(async () => {
       const response = await axios.get(`${this.baseURL}/insights/${symbol}`);
       return response.data;
-    } catch (error) {
-      return this.handleError(error);
-    }
+    });
   }
 
   // 12. 获取涨幅最大的股票
   async getDailyGainers(count: number = 5, region: string = 'US') {
-    try {
+    return this.withRetry(async () => {
       const response = await axios.get(`${this.baseURL}/gainers`, {
         params: { count, region },
       });
       return response.data;
-    } catch (error) {
-      return this.handleError(error);
-    }
+    });
   }
 
   // 13. 获取组合报价
   async getQuoteCombine(symbols: string[], modules: string[]) {
-    try {
+    return this.withRetry(async () => {
       const response = await axios.get(`${this.baseURL}/combine`, {
         params: {
           symbols: symbols.join(','),
@@ -225,21 +245,25 @@ class YahooFinanceClient {
         },
       });
       return response.data;
-    } catch (error) {
-      return this.handleError(error);
-    }
+    });
   }
 
   // 14. 获取股票历史财报日期
   async getEarningsDates(symbol: string, years: number = 5) {
-    try {
+    return this.withRetry(async () => {
       const response = await axios.get(`${this.baseURL}/earnings-dates/${symbol}`, {
         params: { years },
       });
       return response.data;
-    } catch (error) {
-      return this.handleError(error);
-    }
+    });
+  }
+
+  // 获取完整财报数据
+  async getEarningsFullData(symbol: string) {
+    return this.withRetry(async () => {
+      const response = await axios.get(`${this.baseURL}/earnings-full/${symbol}`);
+      return response.data;
+    });
   }
 }
 

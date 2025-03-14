@@ -217,80 +217,35 @@ export function useStockSearch() {
 
 /**
  * 自定义Hook: 获取热门股票
- * @param region 地区代码
+ * @param region 地区，默认为'US'
  * @param refreshInterval 自动刷新间隔 (毫秒), 0表示不自动刷新
  */
 export function useTrendingStocks(region: string = 'US', refreshInterval: number = 0) {
-  const [data, setData] = useState<any | null>(null);
+  const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<Error | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await yahooFinanceClient.getTrendingStocks(region);
+      const result = await yahooFinanceClient.getTrendingSymbols(region);
       setData(result);
+      setLastUpdated(new Date());
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('未知错误'));
+      setError(err instanceof Error ? err : new Error('获取热门股票时出错'));
     } finally {
       setLoading(false);
     }
   }, [region]);
 
+  // 初始加载
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  useEffect(() => {
-    if (refreshInterval <= 0) return;
-
-    const intervalId = setInterval(() => {
-      fetchData();
-    }, refreshInterval);
-
-    return () => clearInterval(intervalId);
-  }, [fetchData, refreshInterval]);
-
-  const refetch = useCallback(() => {
-    fetchData();
-  }, [fetchData]);
-
-  return { data, loading, error, refetch };
-}
-
-/**
- * 自定义Hook: 获取日内涨幅最大的股票
- * @param count 返回数量
- * @param region 地区代码
- * @param refreshInterval 自动刷新间隔 (毫秒), 0表示不自动刷新
- */
-export function useDailyGainers(
-  count: number = 5,
-  region: string = 'US',
-  refreshInterval: number = 0
-) {
-  const [data, setData] = useState<any | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  const fetchData = useCallback(async () => {
-    try {
-      setLoading(true);
-      const result = await yahooFinanceClient.getDailyGainers(count, region);
-      setData(result);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('未知错误'));
-    } finally {
-      setLoading(false);
-    }
-  }, [count, region]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
+  // 设置自动刷新
   useEffect(() => {
     if (refreshInterval <= 0) return;
 
@@ -301,11 +256,12 @@ export function useDailyGainers(
     return () => clearInterval(intervalId);
   }, [fetchData, refreshInterval]);
 
+  // 手动刷新方法
   const refetch = useCallback(() => {
     fetchData();
   }, [fetchData]);
 
-  return { data, loading, error, refetch };
+  return { data, loading, error, lastUpdated, refetch };
 }
 
 /**
@@ -420,4 +376,58 @@ export function useEarningsDates(symbol: string, years: number = 5) {
   }, [fetchData]);
 
   return { data, loading, error, refetch };
+}
+
+/**
+ * 自定义Hook: 获取日涨幅最大的股票
+ * @param count 要获取的股票数量
+ * @param region 地区，默认为'US'
+ * @param refreshInterval 自动刷新间隔 (毫秒), 0表示不自动刷新
+ */
+export function useDailyGainers(
+  count: number = 5,
+  region: string = 'US',
+  refreshInterval: number = 0
+) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const result = await yahooFinanceClient.getDailyGainers(count, region);
+      setData(result);
+      setLastUpdated(new Date());
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('获取日涨幅最大股票时出错'));
+    } finally {
+      setLoading(false);
+    }
+  }, [count, region]);
+
+  // 初始加载
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // 设置自动刷新
+  useEffect(() => {
+    if (refreshInterval <= 0) return;
+
+    const intervalId = setInterval(() => {
+      fetchData();
+    }, refreshInterval);
+
+    return () => clearInterval(intervalId);
+  }, [fetchData, refreshInterval]);
+
+  // 手动刷新方法
+  const refetch = useCallback(() => {
+    fetchData();
+  }, [fetchData]);
+
+  return { data, loading, error, lastUpdated, refetch };
 }

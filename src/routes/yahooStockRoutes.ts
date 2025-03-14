@@ -1,31 +1,20 @@
 // src/routes/yahooStockRoutes.ts
-import express from 'express';
+import express, { Request, Response } from 'express';
 import {
-  // 已有处理函数
+  // 股票信息处理函数
+  getHistoricalDataHandler,
+  getEarningsDatesHandler,
+  getAllStockInfoHandler,
+  getTrendingStocksHandler,
+  getDailyGainersHandler,
+  // 新增的API处理函数
   getStockPriceHandler,
   getMultipleStockPricesHandler,
-  getHistoricalDataHandler,
-
-  // 新增处理函数
-  getSearchSuggestionsHandler,
-  getChartDataHandler,
-  getQuoteSummaryHandler,
+  getStockSummaryHandler,
+  // 搜索API处理函数
   searchStocksHandler,
-  getRecommendationsHandler,
-  getTrendingStocksHandler,
-  getOptionsDataHandler,
-  getInsightsHandler,
-  getDailyGainersHandler,
-  getQuoteCombineHandler,
-
-  // 新增财报日期处理函数
-  getEarningsDatesHandler,
-
-  // 新增全部信息处理函数
-  getAllStockInfoHandler,
-
-  // 新增详细财报数据处理函数
-  getEarningsFullDataHandler,
+  // 新增分析师洞察API处理函数
+  getStockInsightsHandler,
 } from '../services/yahooFinanceService';
 
 const router = express.Router();
@@ -36,49 +25,97 @@ router.use((req, res, next) => {
   next();
 });
 
-// 基本报价路由 - 已有
-router.get('/stock/:symbol', getStockPriceHandler);
-router.get('/stocks', getMultipleStockPricesHandler);
-router.get('/stock/:symbol/history', getHistoricalDataHandler);
+// 添加调试路由
+router.get('/debug', (req, res) => {
+  res.json({
+    status: 'online',
+    message: 'Yahoo Finance API 服务正常运行',
+    availableEndpoints: [
+      '/history/:symbol',
+      '/earnings-dates/:symbol',
+      '/all-info/:symbol',
+      '/earnings-full/:symbol',
+      '/trending',
+      '/gainers',
+      // 新增的API端点
+      '/price/:symbol',
+      '/prices',
+      '/summary/:symbol',
+      '/search',
+      '/insights/:symbol',
+    ],
+    timestamp: new Date().toISOString(),
+  });
+});
 
-// 新增路由
-// 1. 自动完成搜索
-router.get('/autoc', getSearchSuggestionsHandler);
+/**
+ * @route GET /api/yahoo/price/:symbol
+ * @description 获取特定股票的当前价格数据
+ * @access Public
+ */
+router.get('/price/:symbol', getStockPriceHandler);
 
-// 2. 图表数据
-router.get('/chart/:symbol', getChartDataHandler);
+/**
+ * @route GET /api/yahoo/prices
+ * @description 获取多个股票的当前价格数据
+ * @access Public
+ */
+router.get('/prices', getMultipleStockPricesHandler);
 
-// 3. 报价摘要及其子模块
-router.get('/summary/:symbol', getQuoteSummaryHandler);
+/**
+ * @route GET /api/yahoo/summary/:symbol
+ * @description 获取股票的基本概要信息
+ * @access Public
+ */
+router.get('/summary/:symbol', getStockSummaryHandler);
 
-// 4. 搜索功能
-router.get('/search', searchStocksHandler);
+/**
+ * @route GET /api/yahoo/historical/:symbol
+ * @description 获取历史价格数据
+ * @access Public
+ */
+router.get('/historical/:symbol', getHistoricalDataHandler);
 
-// 5. 股票推荐
-router.get('/recommendations/:symbol', getRecommendationsHandler);
+/**
+ * @route GET /api/yahoo/allinfo/:symbol
+ * @description 获取全部股票信息
+ * @access Public
+ */
+router.get('/allinfo/:symbol', getAllStockInfoHandler);
 
-// 6. 热门股票
+/**
+ * @route GET /api/yahoo/trending
+ * @description 获取热门股票
+ * @access Public
+ */
 router.get('/trending', getTrendingStocksHandler);
 
-// 7. 期权数据
-router.get('/options/:symbol', getOptionsDataHandler);
-
-// 8. 洞察信息
-router.get('/insights/:symbol', getInsightsHandler);
-
-// 9. 日内涨幅最大的股票
+/**
+ * @route GET /api/yahoo/gainers
+ * @description 获取涨幅最大的股票
+ * @access Public
+ */
 router.get('/gainers', getDailyGainersHandler);
 
-// 10. 组合报价
-router.get('/combine', getQuoteCombineHandler);
-
-// 11. 获取股票历史财报日期
+/**
+ * @route GET /api/yahoo/earnings-dates/:symbol
+ * @description 获取财报日期
+ * @access Public
+ */
 router.get('/earnings-dates/:symbol', getEarningsDatesHandler);
 
-// 12. 获取股票全部信息（所有可用模块）
-router.get('/all-info/:symbol', getAllStockInfoHandler);
+/**
+ * @route GET /api/yahoo/search
+ * @description 搜索股票
+ * @access Public
+ */
+router.get('/search', searchStocksHandler);
 
-// 13. 获取股票详细财报数据
-router.get('/earnings-full/:symbol', getEarningsFullDataHandler);
+/**
+ * @route GET /api/yahoo/insights/:symbol
+ * @description 获取股票分析师洞察
+ * @access Public
+ */
+router.get('/insights/:symbol', getStockInsightsHandler);
 
 export default router;
