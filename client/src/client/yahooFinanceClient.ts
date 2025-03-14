@@ -53,7 +53,7 @@ class YahooFinanceClient {
       }
 
       throw new Error(
-        `API错误 (${error.response.status}): ${errorData.message || errorData.error || '未知错误'}`,
+        `API错误 (${error.response.status}): ${errorData.message || errorData.error || '未知错误'}`
       );
     } else if (error.request) {
       // 请求发出但没有收到响应
@@ -90,12 +90,12 @@ class YahooFinanceClient {
   async getHistoricalData(
     symbol: string,
     period: string = '1mo',
-    interval: string = '1d',
+    interval: string = '1d'
   ): Promise<HistoricalDataPoint[]> {
     try {
       const response = await axios.get<HistoricalDataPoint[]>(
         `${this.baseURL}/stock/${symbol}/history`,
-        { params: { period, interval } },
+        { params: { period, interval } }
       );
       return response.data;
     } catch (error) {
@@ -120,7 +120,7 @@ class YahooFinanceClient {
     symbol: string,
     interval: string = '1d',
     range: string = '1mo',
-    includePrePost: boolean = false,
+    includePrePost: boolean = false
   ) {
     try {
       const response = await axios.get(`${this.baseURL}/chart/${symbol}`, {
@@ -223,6 +223,18 @@ class YahooFinanceClient {
           symbols: symbols.join(','),
           modules: modules.join(','),
         },
+      });
+      return response.data;
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  // 14. 获取股票历史财报日期
+  async getEarningsDates(symbol: string, years: number = 5) {
+    try {
+      const response = await axios.get(`${this.baseURL}/earnings-dates/${symbol}`, {
+        params: { years },
       });
       return response.data;
     } catch (error) {

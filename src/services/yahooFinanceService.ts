@@ -50,6 +50,72 @@ interface ErrorResponse {
   message: string;
 }
 
+/**
+ * 定期获取数据的配置
+ */
+export const DATA_REFRESH_INTERVAL = 60 * 1000; // 1分钟，开发阶段使用较高频率
+
+/**
+ * 缓存数据
+ */
+interface DataCache {
+  timestamp: number;
+  data: any;
+}
+
+const dataCache: Record<string, DataCache> = {};
+
+/**
+ * 获取缓存数据或执行新的请求
+ * @param cacheKey 缓存键
+ * @param fetchFn 获取数据的函数
+ * @param forceRefresh 强制刷新
+ */
+export const getCachedOrFreshData = async (
+  cacheKey: string,
+  fetchFn: () => Promise<any>,
+  forceRefresh: boolean = false
+): Promise<any> => {
+  const now = Date.now();
+  const cachedData = dataCache[cacheKey];
+
+  // 如果有缓存，且缓存未过期，且不强制刷新，则返回缓存数据
+  if (
+    !forceRefresh &&
+    cachedData &&
+    cachedData.timestamp &&
+    now - cachedData.timestamp < DATA_REFRESH_INTERVAL
+  ) {
+    console.log(
+      `使用缓存数据: ${cacheKey}, 缓存时间: ${new Date(cachedData.timestamp).toISOString()}`
+    );
+    return cachedData.data;
+  }
+
+  // 否则获取新数据
+  console.log(`获取新数据: ${cacheKey}`);
+  try {
+    const freshData = await fetchFn();
+
+    // 更新缓存
+    dataCache[cacheKey] = {
+      timestamp: now,
+      data: freshData,
+    };
+
+    return freshData;
+  } catch (error) {
+    // 如果获取失败但有缓存数据，则返回缓存的数据
+    if (cachedData && cachedData.data) {
+      console.log(`获取新数据失败，使用缓存数据: ${cacheKey}`);
+      return cachedData.data;
+    }
+
+    // 否则抛出错误
+    throw error;
+  }
+};
+
 // 1. 基本报价功能 - 已有实现
 /**
  * 获取单个股票价格
@@ -57,53 +123,56 @@ interface ErrorResponse {
  */
 export const getStockPrice = async (symbol: string): Promise<StockData> => {
   try {
-    // 添加重试逻辑
-    let attempts = 0;
-    const maxAttempts = 3;
-    let lastError;
+    return await getCachedOrFreshData(`stock_price_${symbol}`, async () => {
+      let attempts = 0;
+      const maxAttempts = 3;
+      let lastError;
 
-    while (attempts < maxAttempts) {
-      try {
-        console.log(`尝试获取股票价格: ${symbol} (尝试 ${attempts + 1}/${maxAttempts})`);
+      while (attempts < maxAttempts) {
+        try {
+          console.log(`尝试获取股票价格: ${symbol} (尝试 ${attempts + 1}/${maxAttempts})`);
 
-        const quote = await yahooFinance.quote(symbol);
+          const quote = await yahooFinance.quote(symbol);
 
-        if (quote) {
-          console.log(`成功获取 ${symbol} 的股票价格数据`);
+          if (quote) {
+            console.log(`成功获取 ${symbol} 的股票价格数据`);
 
-          // 从API响应中提取我们需要的数据
-          return {
-            symbol: symbol,
-            price: quote.regularMarketPrice || 0,
-            previousClose: quote.regularMarketPreviousClose,
-            change: quote.regularMarketChange,
-            changePercent: quote.regularMarketChangePercent,
-            volume: quote.regularMarketVolume,
-            marketCap: quote.marketCap,
-            lastUpdated: new Date().toISOString(),
-          };
-        } else {
-          console.log(`获取 ${symbol} 的股票价格返回空结果，将重试`);
+            // 从API响应中提取我们需要的数据
+            return {
+              symbol: symbol,
+              price: quote.regularMarketPrice || 0,
+              previousClose: quote.regularMarketPreviousClose,
+              change: quote.regularMarketChange,
+              changePercent: quote.regularMarketChangePercent,
+              volume: quote.regularMarketVolume,
+              marketCap: quote.marketCap,
+              lastUpdated: new Date().toISOString(),
+            };
+          } else {
+            console.log(`获取 ${symbol} 的股票价格返回空结果，将重试`);
+          }
+        } catch (error) {
+          console.error(
+            `获取 ${symbol} 的股票价格失败 (尝试 ${attempts + 1}/${maxAttempts}):`,
+            error
+          );
+          lastError = error;
         }
-      } catch (error) {
-        console.error(
-          `获取 ${symbol} 的股票价格失败 (尝试 ${attempts + 1}/${maxAttempts}):`,
-          error,
-        );
-        lastError = error;
+
+        attempts++;
+        if (attempts < maxAttempts) {
+          // 增加随机延迟以避免请求过于频繁
+          const delay = 1000 + Math.random() * 2000;
+          console.log(`等待 ${Math.floor(delay)}ms 后重试...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
       }
 
-      attempts++;
-      if (attempts < maxAttempts) {
-        // 增加随机延迟以避免请求过于频繁
-        const delay = 1000 + Math.random() * 2000;
-        console.log(`等待 ${Math.floor(delay)}ms 后重试...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-
-    // 所有尝试都失败，生成模拟数据作为备用方案
-    console.log(`所有获取 ${symbol} 股票价格的尝试均失败，使用模拟数据`);
+      throw lastError || new Error(`无法获取 ${symbol} 的股票价格数据`);
+    });
+  } catch (error) {
+    // 失败后使用模拟数据
+    console.error(`获取股票价格异常: ${error}`);
 
     // 为常见股票代码提供特定的模拟数据
     let basePrice: number;
@@ -149,9 +218,6 @@ export const getStockPrice = async (symbol: string): Promise<StockData> => {
       marketCap: basePrice * (1000000000 + Math.random() * 1000000000),
       lastUpdated: new Date().toISOString(),
     };
-  } catch (error) {
-    console.error(`获取股票价格异常: ${error}`);
-    return handleYahooFinanceError(error, '获取股票价格');
   }
 };
 
@@ -161,37 +227,41 @@ export const getStockPrice = async (symbol: string): Promise<StockData> => {
  */
 export const getMultipleStockPrices = async (symbols: string[]): Promise<StockData[]> => {
   try {
-    // Yahoo Finance允许批量查询
-    const quotes = (await yahooFinance.quote(symbols)) as YahooQuoteResponse | YahooQuoteResponse[];
+    return await getCachedOrFreshData(`multiple_stocks_${symbols.join('_')}`, async () => {
+      // Yahoo Finance允许批量查询
+      const quotes = (await yahooFinance.quote(symbols)) as
+        | YahooQuoteResponse
+        | YahooQuoteResponse[];
 
-    if (!Array.isArray(quotes)) {
-      // 如果只有一个结果，将其转为数组
-      const singleQuote = quotes as YahooQuoteResponse;
-      return [
-        {
-          symbol: singleQuote.symbol || symbols[0],
-          price: singleQuote.regularMarketPrice || 0,
-          previousClose: singleQuote.regularMarketPreviousClose,
-          change: singleQuote.regularMarketChange,
-          changePercent: singleQuote.regularMarketChangePercent,
-          volume: singleQuote.regularMarketVolume,
-          marketCap: singleQuote.marketCap,
-          lastUpdated: new Date().toISOString(),
-        },
-      ];
-    }
+      if (!Array.isArray(quotes)) {
+        // 如果只有一个结果，将其转为数组
+        const singleQuote = quotes as YahooQuoteResponse;
+        return [
+          {
+            symbol: singleQuote.symbol || symbols[0],
+            price: singleQuote.regularMarketPrice || 0,
+            previousClose: singleQuote.regularMarketPreviousClose,
+            change: singleQuote.regularMarketChange,
+            changePercent: singleQuote.regularMarketChangePercent,
+            volume: singleQuote.regularMarketVolume,
+            marketCap: singleQuote.marketCap,
+            lastUpdated: new Date().toISOString(),
+          },
+        ];
+      }
 
-    // 将每个报价转换为统一格式
-    return quotes.map((quote, index) => ({
-      symbol: quote.symbol || symbols[index] || '',
-      price: quote.regularMarketPrice || 0,
-      previousClose: quote.regularMarketPreviousClose,
-      change: quote.regularMarketChange,
-      changePercent: quote.regularMarketChangePercent,
-      volume: quote.regularMarketVolume,
-      marketCap: quote.marketCap,
-      lastUpdated: new Date().toISOString(),
-    }));
+      // 将每个报价转换为统一格式
+      return quotes.map((quote, index) => ({
+        symbol: quote.symbol || symbols[index] || '',
+        price: quote.regularMarketPrice || 0,
+        previousClose: quote.regularMarketPreviousClose,
+        change: quote.regularMarketChange,
+        changePercent: quote.regularMarketChangePercent,
+        volume: quote.regularMarketVolume,
+        marketCap: quote.marketCap,
+        lastUpdated: new Date().toISOString(),
+      }));
+    });
   } catch (error) {
     return handleYahooFinanceError(error, '获取多个股票价格');
   }
@@ -206,22 +276,24 @@ export const getMultipleStockPrices = async (symbols: string[]): Promise<StockDa
 export const getHistoricalData = async (
   symbol: string,
   period: string = '1mo',
-  interval: string = '1d',
+  interval: string = '1d'
 ) => {
   try {
-    const result = await yahooFinance.historical(symbol, {
-      period1: getDateByPeriod(period),
-      interval: interval as any,
-    });
+    return await getCachedOrFreshData(`historical_${symbol}_${period}_${interval}`, async () => {
+      const result = await yahooFinance.historical(symbol, {
+        period1: getDateByPeriod(period),
+        interval: interval as any,
+      });
 
-    return result.map(item => ({
-      date: item.date,
-      open: item.open,
-      high: item.high,
-      low: item.low,
-      close: item.close,
-      volume: item.volume,
-    }));
+      return result.map(item => ({
+        date: item.date,
+        open: item.open,
+        high: item.high,
+        low: item.low,
+        close: item.close,
+        volume: item.volume,
+      }));
+    });
   } catch (error) {
     return handleYahooFinanceError(error, '获取历史股价数据');
   }
@@ -252,8 +324,10 @@ const getDateByPeriod = (period: string): Date => {
  */
 export const getSearchSuggestions = async (query: string) => {
   try {
-    const results = await yahooFinance.autoc(query);
-    return results;
+    return await getCachedOrFreshData(`search_suggestions_${query}`, async () => {
+      const results = await yahooFinance.autoc(query);
+      return results;
+    });
   } catch (error) {
     return handleYahooFinanceError(error, '获取搜索建议');
   }
@@ -271,59 +345,60 @@ export const getChartData = async (
   symbol: string,
   interval: string = '1d',
   range: string = '1mo',
-  includePrePost: boolean = false,
+  includePrePost: boolean = false
 ) => {
   try {
-    // 添加重试逻辑
-    let attempts = 0;
-    const maxAttempts = 3;
-    let lastError;
+    return await getCachedOrFreshData(
+      `chart_${symbol}_${interval}_${range}_${includePrePost}`,
+      async () => {
+        let attempts = 0;
+        const maxAttempts = 3;
+        let lastError;
 
-    while (attempts < maxAttempts) {
-      try {
-        console.log(
-          `尝试获取图表数据: ${symbol}, ${interval}, ${range} (尝试 ${
-            attempts + 1
-          }/${maxAttempts})`,
-        );
+        while (attempts < maxAttempts) {
+          try {
+            console.log(
+              `尝试获取图表数据: ${symbol}, ${interval}, ${range} (尝试 ${
+                attempts + 1
+              }/${maxAttempts})`
+            );
 
-        const result = await yahooFinance.chart(symbol, {
-          interval,
-          range,
-          includePrePost,
-        });
+            const result = await yahooFinance.chart(symbol, {
+              interval,
+              range,
+              includePrePost,
+            });
 
-        if (result && result.chart && result.chart.result && result.chart.result.length > 0) {
-          console.log(`成功获取 ${symbol} 的图表数据`);
-          return result;
-        } else {
-          console.log(`获取 ${symbol} 的图表数据返回空结果，将重试`);
+            if (result && result.chart && result.chart.result && result.chart.result.length > 0) {
+              console.log(`成功获取 ${symbol} 的图表数据`);
+              return result;
+            } else {
+              console.log(`获取 ${symbol} 的图表数据返回空结果，将重试`);
+            }
+          } catch (error) {
+            console.error(
+              `获取 ${symbol} 的图表数据失败 (尝试 ${attempts + 1}/${maxAttempts}):`,
+              error
+            );
+            lastError = error;
+          }
+
+          attempts++;
+          if (attempts < maxAttempts) {
+            // 增加随机延迟以避免请求过于频繁
+            const delay = 1000 + Math.random() * 2000;
+            console.log(`等待 ${Math.floor(delay)}ms 后重试...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
         }
-      } catch (error) {
-        console.error(
-          `获取 ${symbol} 的图表数据失败 (尝试 ${attempts + 1}/${maxAttempts}):`,
-          error,
-        );
-        lastError = error;
+
+        throw lastError || new Error(`无法获取 ${symbol} 的图表数据`);
       }
-
-      attempts++;
-      if (attempts < maxAttempts) {
-        // 增加随机延迟以避免请求过于频繁
-        const delay = 1000 + Math.random() * 2000;
-        console.log(`等待 ${Math.floor(delay)}ms 后重试...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-
-    // 所有尝试都失败，生成模拟数据作为备用方案
-    console.log(`所有获取 ${symbol} 图表数据的尝试均失败，使用模拟数据`);
-
-    // 根据请求的周期生成合适的模拟数据
-    return generateMockChartData(symbol, interval, range);
+    );
   } catch (error) {
+    // 出错时返回模拟数据
     console.error(`获取图表数据异常: ${error}`);
-    return handleYahooFinanceError(error, '获取图表数据');
+    return generateMockChartData(symbol, interval, range);
   }
 };
 
@@ -466,7 +541,7 @@ function generateMockChartData(symbol: string, interval: string, range: string) 
 
     // 设置成交量 (随机但与价格变化正相关)
     let volume = Math.floor(
-      basePrice * 10000 * (1 + Math.abs(change / currentPrice) * 10) * (0.5 + Math.random()),
+      basePrice * 10000 * (1 + Math.abs(change / currentPrice) * 10) * (0.5 + Math.random())
     );
     quotes.volume.push(volume);
   }
@@ -508,10 +583,6 @@ function generateMockChartData(symbol: string, interval: string, range: string) 
 }
 
 // 4. 新增: 获取报价摘要 (quoteSummary) 及其子模块
-interface QuoteSummaryOptions {
-  modules: string[];
-}
-
 /**
  * 获取报价摘要
  * @param symbol 股票代码
@@ -519,8 +590,10 @@ interface QuoteSummaryOptions {
  */
 export const getQuoteSummary = async (symbol: string, modules: string[]) => {
   try {
-    const result = await yahooFinance.quoteSummary(symbol, { modules });
-    return result;
+    return await getCachedOrFreshData(`quote_summary_${symbol}_${modules.join('_')}`, async () => {
+      const result = await yahooFinance.quoteSummary(symbol, { modules });
+      return result;
+    });
   } catch (error) {
     return handleYahooFinanceError(error, '获取报价摘要');
   }
@@ -536,83 +609,80 @@ export const getQuoteSummary = async (symbol: string, modules: string[]) => {
 export const searchStocks = async (
   query: string,
   quotesCount: number = 6,
-  newsCount: number = 4,
+  newsCount: number = 4
 ) => {
   try {
-    // 添加重试逻辑
-    let attempts = 0;
-    const maxAttempts = 3;
-    let lastError;
+    return await getCachedOrFreshData(
+      `search_stocks_${query}_${quotesCount}_${newsCount}`,
+      async () => {
+        let attempts = 0;
+        const maxAttempts = 3;
+        let lastError;
 
-    while (attempts < maxAttempts) {
-      try {
-        console.log(`尝试搜索 "${query}" (尝试 ${attempts + 1}/${maxAttempts})`);
-        const result = await yahooFinance.search(query, { quotesCount, newsCount });
+        while (attempts < maxAttempts) {
+          try {
+            console.log(`尝试搜索 "${query}" (尝试 ${attempts + 1}/${maxAttempts})`);
+            const result = await yahooFinance.search(query, { quotesCount, newsCount });
 
-        // 检查结果是否有效
-        if (result && result.quotes && result.quotes.length > 0) {
-          console.log(`搜索 "${query}" 成功，找到 ${result.quotes.length} 个结果`);
-          return result;
-        } else if (attempts === maxAttempts - 1) {
-          // 最后一次尝试，返回空结果
-          console.log(`搜索 "${query}" 未找到结果，返回空结果`);
-          return {
-            quotes: [],
-            news: [],
-            nav: [],
-            lists: [],
-            researchReports: [],
-            totalTime: 0,
-            timeTakenForQuotes: 0,
-            timeTakenForNews: 0,
-            timeTakenForNav: 0,
-            timeTakenForLists: 0,
-            timeTakenForResearchReports: 0,
-            typeDisp: '',
-          };
+            // 检查结果是否有效
+            if (result && result.quotes && result.quotes.length > 0) {
+              console.log(`搜索 "${query}" 成功，找到 ${result.quotes.length} 个结果`);
+              return result;
+            } else if (attempts === maxAttempts - 1) {
+              // 最后一次尝试，返回空结果
+              console.log(`搜索 "${query}" 未找到结果，返回空结果`);
+              return {
+                quotes: [],
+                news: [],
+                nav: [],
+                lists: [],
+                researchReports: [],
+                totalTime: 0,
+                timeTakenForQuotes: 0,
+                timeTakenForNews: 0,
+                timeTakenForNav: 0,
+                timeTakenForLists: 0,
+                timeTakenForResearchReports: 0,
+                typeDisp: '',
+              };
+            }
+
+            // 未找到结果但未达到最大尝试次数，继续尝试
+            console.log(`搜索 "${query}" 未找到结果，将重试`);
+          } catch (error) {
+            console.error(`搜索 "${query}" 失败 (尝试 ${attempts + 1}/${maxAttempts}):`, error);
+            lastError = error;
+          }
+
+          attempts++;
+          if (attempts < maxAttempts) {
+            // 增加随机延迟以避免请求过于频繁
+            const delay = 1000 + Math.random() * 2000;
+            console.log(`等待 ${Math.floor(delay)}ms 后重试...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
         }
 
-        // 未找到结果但未达到最大尝试次数，继续尝试
-        console.log(`搜索 "${query}" 未找到结果，将重试`);
-      } catch (error) {
-        console.error(`搜索 "${query}" 失败 (尝试 ${attempts + 1}/${maxAttempts}):`, error);
-        lastError = error;
+        throw lastError || new Error(`搜索 "${query}" 失败`);
       }
-
-      attempts++;
-      if (attempts < maxAttempts) {
-        // 增加随机延迟以避免请求过于频繁
-        const delay = 1000 + Math.random() * 2000;
-        console.log(`等待 ${Math.floor(delay)}ms 后重试...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-
-    // 所有尝试都失败，使用备用方案
-    if (lastError) {
-      console.error(`所有搜索 "${query}" 的尝试均失败，使用备用方案`);
-
-      // 返回备用数据结构
-      return {
-        quotes: [],
-        news: [],
-        nav: [],
-        lists: [],
-        researchReports: [],
-        totalTime: 0,
-        timeTakenForQuotes: 0,
-        timeTakenForNews: 0,
-        timeTakenForNav: 0,
-        timeTakenForLists: 0,
-        timeTakenForResearchReports: 0,
-        typeDisp: '',
-      };
-    }
-
-    throw new Error('所有搜索尝试均失败');
+    );
   } catch (error) {
-    console.error(`搜索股票 "${query}" 失败:`, error);
-    return handleYahooFinanceError(error, '搜索股票');
+    console.error(`搜索股票失败: ${error}`);
+    // 返回空结果
+    return {
+      quotes: [],
+      news: [],
+      nav: [],
+      lists: [],
+      researchReports: [],
+      totalTime: 0,
+      timeTakenForQuotes: 0,
+      timeTakenForNews: 0,
+      timeTakenForNav: 0,
+      timeTakenForLists: 0,
+      timeTakenForResearchReports: 0,
+      typeDisp: '',
+    };
   }
 };
 
@@ -623,8 +693,10 @@ export const searchStocks = async (
  */
 export const getRecommendations = async (symbol: string) => {
   try {
-    const result = await yahooFinance.recommendationsBySymbol(symbol);
-    return result;
+    return await getCachedOrFreshData(`recommendations_${symbol}`, async () => {
+      const result = await yahooFinance.recommendationsBySymbol(symbol);
+      return result;
+    });
   } catch (error) {
     return handleYahooFinanceError(error, '获取股票推荐');
   }
@@ -637,8 +709,10 @@ export const getRecommendations = async (symbol: string) => {
  */
 export const getTrendingStocks = async (region: string = 'US') => {
   try {
-    const result = await yahooFinance.trendingSymbols(region);
-    return result;
+    return await getCachedOrFreshData(`trending_${region}`, async () => {
+      const result = await yahooFinance.trendingSymbols(region);
+      return result;
+    });
   } catch (error) {
     return handleYahooFinanceError(error, '获取热门股票');
   }
@@ -656,25 +730,35 @@ export const getOptionsData = async (
   symbol: string,
   expirationDate?: Date,
   strikeMin?: number,
-  strikeMax?: number,
+  strikeMax?: number
 ) => {
   try {
-    const options: any = {};
+    // 创建缓存键
+    const dateStr = expirationDate ? expirationDate.toISOString() : 'none';
+    const strikeMinStr = strikeMin !== undefined ? strikeMin.toString() : 'none';
+    const strikeMaxStr = strikeMax !== undefined ? strikeMax.toString() : 'none';
 
-    if (expirationDate) {
-      options.date = expirationDate;
-    }
+    return await getCachedOrFreshData(
+      `options_${symbol}_${dateStr}_${strikeMinStr}_${strikeMaxStr}`,
+      async () => {
+        const options: any = {};
 
-    if (strikeMin !== undefined) {
-      options.strikeMin = strikeMin;
-    }
+        if (expirationDate) {
+          options.date = expirationDate;
+        }
 
-    if (strikeMax !== undefined) {
-      options.strikeMax = strikeMax;
-    }
+        if (strikeMin !== undefined) {
+          options.strikeMin = strikeMin;
+        }
 
-    const result = await yahooFinance.options(symbol, options);
-    return result;
+        if (strikeMax !== undefined) {
+          options.strikeMax = strikeMax;
+        }
+
+        const result = await yahooFinance.options(symbol, options);
+        return result;
+      }
+    );
   } catch (error) {
     return handleYahooFinanceError(error, '获取期权数据');
   }
@@ -687,8 +771,10 @@ export const getOptionsData = async (
  */
 export const getInsights = async (symbol: string) => {
   try {
-    const result = await yahooFinance.insights(symbol);
-    return result;
+    return await getCachedOrFreshData(`insights_${symbol}`, async () => {
+      const result = await yahooFinance.insights(symbol);
+      return result;
+    });
   } catch (error) {
     return handleYahooFinanceError(error, '获取洞察信息');
   }
@@ -702,8 +788,10 @@ export const getInsights = async (symbol: string) => {
  */
 export const getDailyGainers = async (count: number = 5, region: string = 'US') => {
   try {
-    const result = await yahooFinance.dailyGainers({ count, region });
-    return result;
+    return await getCachedOrFreshData(`gainers_${count}_${region}`, async () => {
+      const result = await yahooFinance.dailyGainers({ count, region });
+      return result;
+    });
   } catch (error: any) {
     return handleYahooFinanceError(error, '获取日内涨幅最大的股票');
   }
@@ -717,10 +805,256 @@ export const getDailyGainers = async (count: number = 5, region: string = 'US') 
  */
 export const getQuoteCombine = async (symbols: string[], modules: string[]) => {
   try {
-    const result = await yahooFinance.quoteCombine(symbols, { modules });
-    return result;
+    return await getCachedOrFreshData(
+      `quote_combine_${symbols.join('_')}_${modules.join('_')}`,
+      async () => {
+        const result = await yahooFinance.quoteCombine(symbols, { modules });
+        return result;
+      }
+    );
   } catch (error) {
     return handleYahooFinanceError(error, '获取组合报价数据');
+  }
+};
+
+/**
+ * 获取股票的全部信息（所有可用模块）
+ * @param symbol 股票代码
+ */
+export const getAllStockInfo = async (symbol: string): Promise<any> => {
+  try {
+    // 添加强制刷新，避免缓存问题
+    return await getCachedOrFreshData(
+      `all_stock_info_${symbol}`,
+      async () => {
+        console.log(`开始获取 ${symbol} 的全部信息...`);
+
+        // 存储所有模块的结果
+        const result: Record<string, any> = {
+          symbol,
+          modules: {},
+          errors: [],
+          summary: {},
+          debug: {},
+        };
+
+        // 临时禁用全局验证设置
+        const currentValidation = yahooFinance.defaultOptions.validation;
+        yahooFinance.defaultOptions.validation = false;
+
+        try {
+          // 定义要获取的所有模块
+          const allModules = [
+            'assetProfile',
+            'summaryProfile',
+            'summaryDetail',
+            'esgScores',
+            'price',
+            'incomeStatementHistory',
+            'incomeStatementHistoryQuarterly',
+            'balanceSheetHistory',
+            'balanceSheetHistoryQuarterly',
+            'cashflowStatementHistory',
+            'cashflowStatementHistoryQuarterly',
+            'defaultKeyStatistics',
+            'financialData',
+            'calendarEvents',
+            'secFilings',
+            'recommendationTrend',
+            'upgradeDowngradeHistory',
+            'institutionOwnership',
+            'fundOwnership',
+            'majorDirectHolders',
+            'majorHoldersBreakdown',
+            'insiderTransactions',
+            'insiderHolders',
+            'netSharePurchaseActivity',
+            'earnings',
+            'earningsHistory',
+            'earningsTrend',
+            'industryTrend',
+            'indexTrend',
+            'sectorTrend',
+          ];
+
+          // 按小批次获取模块，每次5个
+          const batchSize = 5;
+          for (let i = 0; i < allModules.length; i += batchSize) {
+            const moduleBatch = allModules.slice(i, i + batchSize);
+            const batchName = `批次 ${Math.floor(i / batchSize) + 1}/${Math.ceil(
+              allModules.length / batchSize
+            )}`;
+
+            console.log(`获取${batchName}: ${moduleBatch.join(', ')}`);
+
+            try {
+              // 为批次请求添加一些随机延迟以模拟人类行为
+              if (i > 0) {
+                const delay = 500 + Math.random() * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+              }
+
+              // 使用validateResult: false选项获取数据
+              const batchResult = await yahooFinance.quoteSummary(symbol, {
+                modules: moduleBatch,
+                validateResult: false,
+              });
+
+              // 处理返回的结果
+              if (batchResult?.quoteSummary?.result?.[0]) {
+                const moduleData = batchResult.quoteSummary.result[0];
+
+                // 保存获取到的每个模块数据
+                moduleBatch.forEach(module => {
+                  if (moduleData[module]) {
+                    result.modules[module] = moduleData[module];
+                    console.log(`✓ 成功获取模块: ${module}`);
+                  } else {
+                    console.log(`✗ 模块 ${module} 无数据`);
+                  }
+                });
+              } else {
+                console.log(`${batchName}无结果数据`);
+                result.debug[`batch_${i}`] = batchResult;
+              }
+            } catch (batchError) {
+              console.error(`${batchName}获取失败:`, batchError);
+
+              // 检查是否为验证错误但仍有数据
+              if (batchError.name === 'FailedYahooValidationError' && batchError.result) {
+                console.log(`尽管${batchName}有验证错误，但返回了数据`);
+
+                // 尝试从错误结果中提取有用数据
+                if (batchError.result?.quoteSummary?.result?.[0]) {
+                  const moduleData = batchError.result.quoteSummary.result[0];
+
+                  moduleBatch.forEach(module => {
+                    if (moduleData[module]) {
+                      result.modules[module] = moduleData[module];
+                      console.log(`✓ 从验证错误中成功提取: ${module}`);
+                    }
+                  });
+                }
+              } else {
+                // 记录其他错误
+                result.errors.push({
+                  modules: moduleBatch,
+                  error: batchError.message,
+                });
+              }
+            }
+          }
+
+          // 如果没有获取到任何模块数据，添加模拟数据
+          if (Object.keys(result.modules).length === 0) {
+            console.log('未获取到任何模块数据，添加完整模拟数据');
+            result.warning = '使用完整模拟数据 (无法从Yahoo Finance获取数据)';
+
+            // 添加基本模拟数据
+            result.modules = {
+              price: {
+                regularMarketPrice: { raw: 150 + Math.random() * 50 },
+                regularMarketChange: { raw: Math.random() * 10 - 5 },
+                regularMarketChangePercent: { raw: Math.random() * 5 - 2.5 },
+                regularMarketVolume: { raw: Math.floor(1000000 + Math.random() * 10000000) },
+                marketCap: { raw: Math.floor(50000000000 + Math.random() * 100000000000) },
+              },
+              summaryDetail: {
+                previousClose: { raw: 148 + Math.random() * 50 },
+                open: { raw: 149 + Math.random() * 50 },
+                dayLow: { raw: 147 + Math.random() * 45 },
+                dayHigh: { raw: 153 + Math.random() * 55 },
+                volume: { raw: Math.floor(1000000 + Math.random() * 10000000) },
+              },
+              assetProfile: {
+                sector: '技术',
+                industry: '消费电子',
+                website: 'https://www.example.com',
+                longBusinessSummary: '这是模拟的公司描述信息',
+              },
+              defaultKeyStatistics: {
+                enterpriseValue: { raw: Math.floor(60000000000 + Math.random() * 120000000000) },
+                forwardPE: { raw: 15 + Math.random() * 10 },
+                pegRatio: { raw: 1 + Math.random() },
+                priceToBook: { raw: 3 + Math.random() * 4 },
+              },
+            };
+          } else {
+            // 检查是否需要添加部分模拟数据
+            if (!result.modules.price) {
+              console.log('缺少价格数据，添加模拟价格');
+              result.modules.price = {
+                regularMarketPrice: { raw: 150 + Math.random() * 50 },
+                regularMarketChange: { raw: Math.random() * 10 - 5 },
+                regularMarketChangePercent: { raw: Math.random() * 5 - 2.5 },
+              };
+              result.warning = '部分使用模拟数据';
+            }
+          }
+
+          // 提取关键信息到summary部分
+          const summaryExtractors = {
+            price: data => ({
+              currentPrice: data.regularMarketPrice?.raw || data.regularMarketPrice,
+              change: data.regularMarketChange?.raw || data.regularMarketChange,
+              changePercent:
+                data.regularMarketChangePercent?.raw || data.regularMarketChangePercent,
+              volume: data.regularMarketVolume?.raw || data.regularMarketVolume,
+            }),
+
+            assetProfile: data => ({
+              sector: data.sector,
+              industry: data.industry,
+              website: data.website,
+              description:
+                data.longBusinessSummary?.substring(0, 300) +
+                (data.longBusinessSummary?.length > 300 ? '...' : ''),
+            }),
+
+            defaultKeyStatistics: data => ({
+              marketCap: data.marketCap?.raw || data.marketCap,
+              enterpriseValue: data.enterpriseValue?.raw || data.enterpriseValue,
+              trailingPE: data.trailingPE?.raw || data.trailingPE,
+              forwardPE: data.forwardPE?.raw || data.forwardPE,
+              pegRatio: data.pegRatio?.raw || data.pegRatio,
+            }),
+
+            earnings: data => ({
+              earningsDate: data.earningsDate?.[0]?.raw || data.earningsDate?.[0],
+              earningsAverage: data.earningsAverage?.raw || data.earningsAverage,
+              earningsLow: data.earningsLow?.raw || data.earningsLow,
+              earningsHigh: data.earningsHigh?.raw || data.earningsHigh,
+            }),
+
+            majorHoldersBreakdown: data => ({
+              insidersPercent: data.insidersPercentHeld?.raw || data.insidersPercentHeld,
+              institutionsPercent:
+                data.institutionsPercentHeld?.raw || data.institutionsPercentHeld,
+            }),
+          };
+
+          // 应用提取器并构建摘要
+          Object.keys(summaryExtractors).forEach(module => {
+            if (result.modules[module]) {
+              try {
+                result.summary[module] = summaryExtractors[module](result.modules[module]);
+              } catch (extractError) {
+                console.error(`提取${module}摘要时出错:`, extractError);
+              }
+            }
+          });
+        } finally {
+          // 恢复验证设置
+          yahooFinance.defaultOptions.validation = currentValidation;
+        }
+
+        return result;
+      },
+      true
+    ); // 添加强制刷新参数
+  } catch (error) {
+    console.error(`获取 ${symbol} 的全部信息时发生错误:`, error);
+    throw handleYahooFinanceError(error, `获取${symbol}全部信息`);
   }
 };
 
@@ -790,7 +1124,7 @@ export const getHistoricalDataHandler = async (req: Request, res: Response) => {
     const data = await getHistoricalData(
       symbol,
       period ? String(period) : '1mo',
-      interval ? String(interval) : '1d',
+      interval ? String(interval) : '1d'
     );
     return res.json(data);
   } catch (error: any) {
@@ -836,7 +1170,7 @@ export const getChartDataHandler = async (req: Request, res: Response) => {
         symbol,
         interval ? String(interval) : '1d',
         range ? String(range) : '1mo',
-        includePrePost === 'true',
+        includePrePost === 'true'
       );
       console.log(`成功处理 ${symbol} 的图表数据请求`);
       return res.json(chartData);
@@ -847,7 +1181,7 @@ export const getChartDataHandler = async (req: Request, res: Response) => {
       const mockData = generateMockChartData(
         symbol,
         interval ? String(interval) : '1d',
-        range ? String(range) : '1mo',
+        range ? String(range) : '1mo'
       );
       console.log(`返回 ${symbol} 的模拟图表数据`);
       return res.json(mockData);
@@ -903,7 +1237,7 @@ export const searchStocksHandler = async (req: Request, res: Response) => {
       const searchResults = await searchStocks(
         String(query),
         quotesCount ? Number(quotesCount) : undefined,
-        newsCount ? Number(newsCount) : undefined,
+        newsCount ? Number(newsCount) : undefined
       );
       return res.json(searchResults);
     } catch (error: any) {
@@ -989,7 +1323,7 @@ export const getOptionsDataHandler = async (req: Request, res: Response) => {
       symbol,
       expirationDate,
       strikeMin ? Number(strikeMin) : undefined,
-      strikeMax ? Number(strikeMax) : undefined,
+      strikeMax ? Number(strikeMax) : undefined
     );
     return res.json(optionsData);
   } catch (error: any) {
@@ -1026,7 +1360,7 @@ export const getDailyGainersHandler = async (req: Request, res: Response) => {
 
     const gainers = await getDailyGainers(
       count ? Number(count) : undefined,
-      region ? String(region) : undefined,
+      region ? String(region) : undefined
     );
     return res.json(gainers);
   } catch (error: any) {
@@ -1118,3 +1452,407 @@ function generateMockStockPrice(symbol: string): StockData {
     lastUpdated: new Date().toISOString(),
   };
 }
+
+/**
+ * 获取股票历史财报日期
+ * @param symbol 股票代码
+ * @param years 要获取的年数，默认为5
+ */
+export const getEarningsDates = async (symbol: string, years: number = 5): Promise<any> => {
+  try {
+    // 重用更完整的实现
+    const fullData = await getEarningsFullData(symbol);
+
+    // 只返回earningsDates部分
+    return {
+      symbol,
+      earningsDates: fullData.enhancedData.earningsDates,
+    };
+  } catch (error) {
+    return handleYahooFinanceError(error, `获取${symbol}历史财报日期`);
+  }
+};
+
+/**
+ * 获取股票的全部信息处理函数
+ */
+export const getAllStockInfoHandler = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const symbol = req.params.symbol;
+
+    if (!symbol) {
+      res.status(400).json({
+        error: '参数错误',
+        message: '请提供股票代码',
+      });
+      return;
+    }
+
+    const allStockInfo = await getAllStockInfo(symbol);
+    res.json(allStockInfo);
+  } catch (error: any) {
+    console.error('获取股票全部信息出错:', error);
+    res.status(500).json({
+      error: '获取股票全部信息失败',
+      message: error.message || '未知错误',
+    });
+  }
+};
+
+/**
+ * 获取股票详细财报数据
+ * @param symbol 股票代码
+ * @returns 详细的财报数据包括财报日期、SEC文件等
+ */
+export const getEarningsFullData = async (symbol: string): Promise<any> => {
+  try {
+    console.log(`开始获取${symbol}的详细财报数据`);
+
+    // 存储原始结果
+    const result: any = {
+      symbol,
+      originalData: { symbol },
+    };
+
+    // 使用非验证模式获取数据
+    const options = {
+      validateResult: false, // 禁用结果验证，避免模式不匹配的错误
+      devel: true, // 开发模式，获取详细信息
+    };
+
+    // 尝试使用quoteSummary方法获取所有需要的模块
+    try {
+      console.log(`尝试使用quoteSummary获取${symbol}的财报数据`);
+
+      // 临时禁用全局验证，仅用于此次请求
+      const currentValidation = yahooFinance.defaultOptions.validation;
+      yahooFinance.defaultOptions.validation = { logErrors: false, logWarnings: false };
+
+      // 获取多个模块
+      const quoteSummaryData = await yahooFinance.quoteSummary(symbol, {
+        modules: ['earnings', 'earningsHistory', 'calendarEvents', 'secFilings'],
+        ...options,
+      });
+
+      // 恢复原来的验证设置
+      yahooFinance.defaultOptions.validation = currentValidation;
+
+      console.log(`quoteSummary返回的数据类型: ${typeof quoteSummaryData}`);
+      if (quoteSummaryData) {
+        if (
+          quoteSummaryData.quoteSummary &&
+          quoteSummaryData.quoteSummary.result &&
+          quoteSummaryData.quoteSummary.result.length > 0
+        ) {
+          const data = quoteSummaryData.quoteSummary.result[0];
+          console.log(`成功获取到包含以下模块的数据: ${Object.keys(data).join(', ')}`);
+
+          // 保存原始数据
+          Object.keys(data).forEach(module => {
+            result.originalData[module] = data[module];
+          });
+
+          // 打印部分样本数据
+          if (data.earnings) {
+            console.log(
+              'earnings部分数据样本:',
+              JSON.stringify(data.earnings).substring(0, 200) + '...'
+            );
+          }
+          if (data.earningsHistory && data.earningsHistory.history) {
+            console.log(`发现${data.earningsHistory.history.length}条财报历史记录`);
+          }
+        } else {
+          // 尝试直接使用数据
+          console.log(`API返回格式异常，尝试直接解析数据`);
+
+          if (quoteSummaryData.earnings) result.originalData.earnings = quoteSummaryData.earnings;
+          if (quoteSummaryData.earningsHistory)
+            result.originalData.earningsHistory = quoteSummaryData.earningsHistory;
+          if (quoteSummaryData.calendarEvents)
+            result.originalData.calendarEvents = quoteSummaryData.calendarEvents;
+          if (quoteSummaryData.secFilings)
+            result.originalData.secFilings = quoteSummaryData.secFilings;
+
+          console.log(
+            `直接解析结果: 获取到的模块: ${Object.keys(result.originalData)
+              .filter(k => k !== 'symbol')
+              .join(', ')}`
+          );
+        }
+      } else {
+        console.log(`quoteSummary未返回有效数据`);
+      }
+    } catch (error) {
+      console.error(`使用quoteSummary获取财报数据失败:`, error);
+    }
+
+    // 尝试使用earnings方法获取财报数据
+    try {
+      console.log(`尝试使用earnings方法获取${symbol}的财报数据`);
+      const earningsData = await yahooFinance.earnings(symbol, options);
+
+      if (earningsData) {
+        console.log(`earnings方法数据结构: ${Object.keys(earningsData).join(', ')}`);
+        result.originalData.earningsMethod = earningsData;
+      } else {
+        console.log(`earnings方法未返回有效数据`);
+      }
+    } catch (error) {
+      console.error(`使用earnings方法获取财报数据失败:`, error);
+    }
+
+    // 增强数据
+    const enhancedData: any = {
+      earningsDates: [],
+      secFilings: [],
+      upcomingEarningsDate: null,
+      earningsHistory: [],
+      earningsQuarterly: [],
+    };
+
+    // 处理财报历史 - 使用quoteSummary方法获取的数据
+    if (result.originalData.earningsHistory && result.originalData.earningsHistory.history) {
+      try {
+        console.log(`处理${result.originalData.earningsHistory.history.length}条财报历史记录`);
+        result.originalData.earningsHistory.history.forEach((item: any, index: number) => {
+          try {
+            if (item) {
+              console.log(
+                `处理财报历史记录 #${index + 1}:`,
+                JSON.stringify(item).substring(0, 200)
+              );
+
+              // 从quarter获取季度结束日期
+              const earningDate = item.quarter ? new Date(item.quarter * 1000) : null;
+              const quarterDate = earningDate ? earningDate.toISOString().split('T')[0] : null;
+
+              // 从date获取财报发布日期
+              const reportDate = item.date
+                ? new Date(item.date * 1000).toISOString().split('T')[0]
+                : null;
+
+              const historyItem = {
+                date: item.period || quarterDate,
+                quarter: quarterDate,
+                quarterTimestamp: item.quarter,
+                reportDate: reportDate,
+                reportTimestamp: item.date,
+                epsActual: item.epsActual !== undefined ? item.epsActual : null,
+                epsEstimate: item.epsEstimate !== undefined ? item.epsEstimate : null,
+                epsDifference: item.surprise !== undefined ? item.surprise : null,
+                surprisePercent: item.surprisePercent !== undefined ? item.surprisePercent : null,
+              };
+
+              enhancedData.earningsHistory.push(historyItem);
+
+              // 添加到财报日期列表
+              if (reportDate) {
+                enhancedData.earningsDates.push({
+                  date: reportDate,
+                  quarterEndDate: quarterDate,
+                  epsActual: historyItem.epsActual,
+                  epsEstimate: historyItem.epsEstimate,
+                  epsDifference: historyItem.epsDifference,
+                  surprisePercent: historyItem.surprisePercent,
+                  isUpcoming: false,
+                });
+              }
+            }
+          } catch (itemError) {
+            console.error(`处理财报历史记录 #${index + 1} 时出错:`, itemError);
+          }
+        });
+      } catch (historyError) {
+        console.error(`处理财报历史记录时出错:`, historyError);
+      }
+    }
+
+    // 处理即将到来的财报日期
+    if (result.originalData.calendarEvents && result.originalData.calendarEvents.earnings) {
+      try {
+        const earningsInfo = result.originalData.calendarEvents.earnings;
+        console.log(`处理即将到来的财报日期:`, JSON.stringify(earningsInfo).substring(0, 200));
+
+        if (earningsInfo.earningsDate) {
+          const upcomingDates = Array.isArray(earningsInfo.earningsDate)
+            ? earningsInfo.earningsDate
+            : [earningsInfo.earningsDate];
+
+          if (upcomingDates.length > 0) {
+            const upcomingTimestamp = upcomingDates[0];
+            const upcomingDate = new Date(upcomingTimestamp * 1000).toISOString();
+
+            enhancedData.upcomingEarningsDate = {
+              date: upcomingDate,
+              timestamp: upcomingTimestamp,
+              estimated: true,
+            };
+
+            // 添加到财报日期列表
+            enhancedData.earningsDates.unshift({
+              date: upcomingDate.split('T')[0],
+              quarterEndDate: null,
+              epsActual: null,
+              epsEstimate: earningsInfo.earningsAverage || null,
+              epsDifference: null,
+              surprisePercent: null,
+              isUpcoming: true,
+            });
+          }
+        }
+      } catch (upcomingError) {
+        console.error(`处理即将到来的财报日期时出错:`, upcomingError);
+      }
+    }
+
+    // 处理财报季度数据
+    if (result.originalData.earnings && result.originalData.earnings.earningsChart) {
+      try {
+        const { earningsChart } = result.originalData.earnings;
+        console.log(`处理财报季度数据:`, JSON.stringify(earningsChart).substring(0, 200));
+
+        if (earningsChart.quarterly && Array.isArray(earningsChart.quarterly)) {
+          earningsChart.quarterly.forEach((item: any, index: number) => {
+            try {
+              enhancedData.earningsQuarterly.push({
+                date: item.date,
+                actual: item.actual !== undefined ? item.actual : null,
+                estimate: item.estimate !== undefined ? item.estimate : null,
+              });
+            } catch (quarterlyError) {
+              console.error(`处理财报季度数据 #${index + 1} 时出错:`, quarterlyError);
+            }
+          });
+        }
+      } catch (quarterlyError) {
+        console.error(`处理财报季度数据时出错:`, quarterlyError);
+      }
+    }
+
+    // 处理earnings方法返回的数据 (备选数据源)
+    if (result.originalData.earningsMethod && result.originalData.earningsMethod.earningsData) {
+      try {
+        const earningsData = result.originalData.earningsMethod.earningsData;
+        console.log(`处理earnings方法数据:`, JSON.stringify(earningsData).substring(0, 200));
+
+        if (Array.isArray(earningsData)) {
+          earningsData.forEach((item: any, index: number) => {
+            try {
+              if (item.date && (item.epsActual !== undefined || item.epsEstimate !== undefined)) {
+                // 检查是否已经存在相同日期的记录
+                const existingIndex = enhancedData.earningsDates.findIndex(
+                  (e: any) => e.date === item.date
+                );
+
+                if (existingIndex === -1) {
+                  enhancedData.earningsDates.push({
+                    date: item.date,
+                    quarterEndDate: item.quarter || null,
+                    epsActual: item.epsActual !== undefined ? item.epsActual : null,
+                    epsEstimate: item.epsEstimate !== undefined ? item.epsEstimate : null,
+                    epsDifference: null,
+                    surprisePercent: null,
+                    isUpcoming: false,
+                  });
+                }
+              }
+            } catch (itemError) {
+              console.error(`处理earnings方法数据 #${index + 1} 时出错:`, itemError);
+            }
+          });
+        }
+      } catch (earningsMethodError) {
+        console.error(`处理earnings方法数据时出错:`, earningsMethodError);
+      }
+    }
+
+    // 如果没有获取到任何财报日期，添加一个模拟数据
+    if (enhancedData.earningsDates.length === 0) {
+      console.log(`警告: 未能获取到任何财报日期数据，添加模拟数据`);
+
+      // 添加一条模拟数据作为示例
+      const today = new Date();
+      const nextQuarter = new Date(today);
+      nextQuarter.setMonth(nextQuarter.getMonth() + 3);
+
+      enhancedData.earningsDates.push({
+        date: nextQuarter.toISOString().split('T')[0],
+        quarterEndDate: null,
+        epsActual: null,
+        epsEstimate: null,
+        epsDifference: null,
+        surprisePercent: null,
+        isUpcoming: true,
+        isMock: true,
+      });
+
+      // 添加警告信息
+      result.warning = '无法获取真实财报日期数据，显示的是模拟数据';
+    }
+
+    // 按日期降序排序
+    enhancedData.earningsDates.sort((a: any, b: any) => {
+      if (!a.date) return 1;
+      if (!b.date) return -1;
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
+    });
+
+    console.log(`最终获取到 ${enhancedData.earningsDates.length} 条财报日期记录`);
+
+    result.enhancedData = enhancedData;
+    return result;
+  } catch (error) {
+    console.error('获取详细财报数据时出错:', error);
+    throw handleYahooFinanceError(error);
+  }
+};
+
+/**
+ * 获取股票历史财报日期的请求处理函数
+ */
+export const getEarningsDatesHandler = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const symbol = req.params.symbol;
+    const years = req.query.years ? parseInt(req.query.years as string, 10) : 5;
+
+    if (isNaN(years) || years <= 0 || years > 10) {
+      res.status(400).json({
+        error: '参数错误',
+        message: 'years参数必须是1-10之间的整数',
+      });
+      return;
+    }
+
+    const earningsDates = await getEarningsDates(symbol, years);
+    res.json(earningsDates);
+  } catch (error: any) {
+    console.error('获取历史财报日期出错:', error);
+    res.status(500).json({
+      error: '获取财报日期失败',
+      message: error.message || '未知错误',
+    });
+  }
+};
+
+/**
+ * 处理获取股票详细财报数据的API请求
+ * @param req 请求对象
+ * @param res 响应对象
+ */
+export const getEarningsFullDataHandler = async (req: Request, res: Response) => {
+  try {
+    const { symbol } = req.params;
+
+    if (!symbol) {
+      return res.status(400).json({ error: '请提供股票代码' });
+    }
+
+    // 调用getEarningsFullData函数获取详细财报数据
+    const data = await getEarningsFullData(symbol);
+    return res.json(data);
+  } catch (error: any) {
+    console.error('获取详细财报数据时出错:', error);
+    return res.status(500).json({ error: '获取详细财报数据时出错', details: error.message });
+  }
+};

@@ -9,6 +9,10 @@ import {
   getStockPriceHandler,
   getMultipleStockPricesHandler,
   getHistoricalDataHandler,
+  getStockPrice,
+  getTrendingStocks,
+  getDailyGainers,
+  DATA_REFRESH_INTERVAL,
 } from './services/yahooFinanceService';
 import yahooRoutes from './routes/yahooStockRoutes';
 
@@ -45,16 +49,7 @@ try {
   yahooFinance.setGlobalConfig({
     validation: {
       logErrors: false,
-      logWarnings: false,
-    },
-    // 添加代理选项，在某些情况下可能需要代理来解决认证问题
-    queue: {
-      concurrent: 1, // 限制并发请求数
-      timeout: 60000, // 队列请求超时时间
-    },
-    // 禁用所有不需要的通知
-    notices: {
-      enabledNotices: [], // 禁用所有通知
+      logOptionsErrors: false,
     },
   });
 
@@ -131,7 +126,54 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 const server = app.listen(PORT, () => {
   console.log(`🚀 服务器已启动: http://localhost:${PORT}`);
   console.log(`🔄 环境: ${process.env.NODE_ENV || 'development'}`);
+
+  // 设置定期刷新热门数据的任务
+  setupDataRefreshTasks();
 });
+
+/**
+ * 设置定期刷新数据的任务
+ */
+function setupDataRefreshTasks() {
+  const refreshInterval = DATA_REFRESH_INTERVAL;
+  console.log(`🔄 配置数据刷新任务，频率: ${refreshInterval / 1000} 秒`);
+
+  // 定期获取热门股票数据（美国市场）
+  setInterval(async () => {
+    try {
+      console.log('执行定期任务: 刷新美国热门股票数据');
+      await getTrendingStocks('US');
+      console.log('美国热门股票数据已刷新');
+    } catch (error) {
+      console.error('刷新美国热门股票数据失败:', error);
+    }
+  }, refreshInterval);
+
+  // 定期获取大涨股数据
+  setInterval(async () => {
+    try {
+      console.log('执行定期任务: 刷新大涨股数据');
+      await getDailyGainers(10, 'US');
+      console.log('大涨股数据已刷新');
+    } catch (error) {
+      console.error('刷新大涨股数据失败:', error);
+    }
+  }, refreshInterval);
+
+  // 定期获取主要股票数据
+  const popularStocks = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META'];
+  setInterval(async () => {
+    try {
+      console.log('执行定期任务: 刷新主要股票数据');
+      for (const symbol of popularStocks) {
+        await getStockPrice(symbol);
+      }
+      console.log('主要股票数据已刷新');
+    } catch (error) {
+      console.error('刷新主要股票数据失败:', error);
+    }
+  }, refreshInterval);
+}
 
 // 优雅关闭
 process.on('SIGTERM', () => {

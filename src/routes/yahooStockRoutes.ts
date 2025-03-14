@@ -17,6 +17,15 @@ import {
   getInsightsHandler,
   getDailyGainersHandler,
   getQuoteCombineHandler,
+
+  // 新增财报日期处理函数
+  getEarningsDatesHandler,
+
+  // 新增全部信息处理函数
+  getAllStockInfoHandler,
+
+  // 新增详细财报数据处理函数
+  getEarningsFullDataHandler,
 } from '../services/yahooFinanceService';
 
 const router = express.Router();
@@ -62,5 +71,14 @@ router.get('/gainers', getDailyGainersHandler);
 
 // 10. 组合报价
 router.get('/combine', getQuoteCombineHandler);
+
+// 11. 获取股票历史财报日期
+router.get('/earnings-dates/:symbol', getEarningsDatesHandler);
+
+// 12. 获取股票全部信息（所有可用模块）
+router.get('/all-info/:symbol', getAllStockInfoHandler);
+
+// 13. 获取股票详细财报数据
+router.get('/earnings-full/:symbol', getEarningsFullDataHandler);
 
 export default router;

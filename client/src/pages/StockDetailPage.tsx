@@ -3,10 +3,23 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { StockPriceCard } from '../components/StockPriceCard';
 import { StockChart } from '../components/StockChart';
-import { useQuoteSummary, useStockInsights, useChartData } from '../hooks/useYahooFinance';
+import {
+  useQuoteSummary,
+  useStockInsights,
+  useChartData,
+  useEarningsDates,
+} from '../hooks/useYahooFinance';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { BarChart2, LineChart, PieChart, TrendingUp, Info, DollarSign } from 'lucide-react';
+import {
+  BarChart2,
+  LineChart,
+  PieChart,
+  TrendingUp,
+  Info,
+  DollarSign,
+  Calendar,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 // 格式化大数字的辅助函数
@@ -48,6 +61,14 @@ const StockDetailPage: React.FC = () => {
     error: chartError,
     refetch: refetchChart,
   } = useChartData(symbol || '', interval, period);
+
+  // 获取历史财报日期
+  const {
+    data: earningsData,
+    loading: earningsLoading,
+    error: earningsError,
+    refetch: refetchEarnings,
+  } = useEarningsDates(symbol || '');
 
   // 处理图表数据为适合组件使用的格式
   const processedChartData = React.useMemo(() => {
@@ -217,6 +238,10 @@ const StockDetailPage: React.FC = () => {
             <BarChart2 className="h-4 w-4 mr-2" />
             财务指标
           </TabsTrigger>
+          <TabsTrigger value="earnings">
+            <Calendar className="h-4 w-4 mr-2" />
+            财报日期
+          </TabsTrigger>
           <TabsTrigger value="insight">
             <TrendingUp className="h-4 w-4 mr-2" />
             分析师观点
@@ -347,6 +372,135 @@ const StockDetailPage: React.FC = () => {
                     <div className="font-medium">
                       {formatLargeNumber(summaryData?.financialData?.operatingCashflow)}
                     </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="earnings">
+          <Card>
+            <CardHeader>
+              <CardTitle>历史财报日期</CardTitle>
+              <CardDescription>过去几年的财报发布日期及每股收益信息</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {earningsLoading ? (
+                <div className="animate-pulse space-y-4">
+                  <div className="h-4 bg-gray-200 rounded-md w-3/4"></div>
+                  {Array(5)
+                    .fill(0)
+                    .map((_, i) => (
+                      <div key={i} className="grid grid-cols-4 gap-4">
+                        <div className="h-4 bg-gray-200 rounded-md w-full"></div>
+                        <div className="h-4 bg-gray-200 rounded-md w-full"></div>
+                        <div className="h-4 bg-gray-200 rounded-md w-full"></div>
+                        <div className="h-4 bg-gray-200 rounded-md w-full"></div>
+                      </div>
+                    ))}
+                </div>
+              ) : earningsError ? (
+                <div className="text-center py-4">
+                  <p className="text-gray-500 dark:text-gray-400 mb-2">加载财报数据失败</p>
+                  <Button size="sm" onClick={refetchEarnings}>
+                    重试
+                  </Button>
+                </div>
+              ) : !earningsData ||
+                !earningsData.earningsDates ||
+                earningsData.earningsDates.length === 0 ? (
+                <div className="text-center py-4 text-gray-500 dark:text-gray-400">
+                  暂无财报数据
+                </div>
+              ) : (
+                <div>
+                  <div className="grid grid-cols-5 gap-4 font-medium text-sm mb-2 border-b pb-2">
+                    <div>财报发布日期</div>
+                    <div>季度结束日期</div>
+                    <div>实际EPS</div>
+                    <div>预估EPS</div>
+                    <div>意外百分比</div>
+                  </div>
+                  <div className="space-y-2">
+                    {earningsData.earningsDates.map((item: any, index: number) => (
+                      <div
+                        key={index}
+                        className={`grid grid-cols-5 gap-4 text-sm py-2 ${
+                          index % 2 === 0 ? 'bg-gray-50 dark:bg-gray-800/50' : ''
+                        }`}
+                      >
+                        <div>
+                          {item.date ? (
+                            <span
+                              className={
+                                item.isSecFilingDate
+                                  ? 'text-green-600 font-medium'
+                                  : item.isEstimatedDate
+                                  ? 'text-orange-600'
+                                  : ''
+                              }
+                            >
+                              {new Date(item.date).toLocaleDateString('zh-CN', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                              })}
+                            </span>
+                          ) : (
+                            'N/A'
+                          )}
+                          {item.isUpcoming && (
+                            <span className="ml-2 inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
+                              即将发布
+                            </span>
+                          )}
+                          {item.isEstimatedDate && (
+                            <span className="ml-2 inline-flex items-center rounded-md bg-orange-50 px-2 py-1 text-xs font-medium text-orange-700 ring-1 ring-inset ring-orange-700/10">
+                              估计日期
+                            </span>
+                          )}
+                          {item.isSecFilingDate && (
+                            <span className="ml-2 inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-700/10">
+                              SEC文件日期
+                            </span>
+                          )}
+                        </div>
+                        <div>
+                          {item.quarter
+                            ? new Date(item.quarter).toLocaleDateString('zh-CN', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                              })
+                            : 'N/A'}
+                        </div>
+                        <div>
+                          {item.epsActual !== null ? `$${item.epsActual?.toFixed(2)}` : 'N/A'}
+                        </div>
+                        <div>
+                          {item.epsEstimate !== null ? `$${item.epsEstimate?.toFixed(2)}` : 'N/A'}
+                        </div>
+                        <div>
+                          {item.surprisePercent !== null ? (
+                            <span
+                              className={
+                                item.surprisePercent > 0
+                                  ? 'text-green-600'
+                                  : item.surprisePercent < 0
+                                  ? 'text-red-600'
+                                  : ''
+                              }
+                            >
+                              {item.surprisePercent > 0 ? '+' : ''}
+                              {item.surprisePercent?.toFixed(2)}%
+                            </span>
+                          ) : (
+                            'N/A'
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

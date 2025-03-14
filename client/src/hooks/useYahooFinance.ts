@@ -209,7 +209,7 @@ export function useStockSearch() {
         setLoading(false);
       }
     },
-    [],
+    []
   );
 
   return { results, loading, error, search };
@@ -268,7 +268,7 @@ export function useTrendingStocks(region: string = 'US', refreshInterval: number
 export function useDailyGainers(
   count: number = 5,
   region: string = 'US',
-  refreshInterval: number = 0,
+  refreshInterval: number = 0
 ) {
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -354,7 +354,7 @@ export function useChartData(
   symbol: string,
   interval: string = '1d',
   range: string = '1mo',
-  includePrePost: boolean = false,
+  includePrePost: boolean = false
 ) {
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -374,6 +374,42 @@ export function useChartData(
       setLoading(false);
     }
   }, [symbol, interval, range, includePrePost]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const refetch = useCallback(() => {
+    fetchData();
+  }, [fetchData]);
+
+  return { data, loading, error, refetch };
+}
+
+/**
+ * 自定义Hook: 获取股票历史财报日期
+ * @param symbol 股票代码
+ * @param years 要获取的年数，默认为5
+ */
+export function useEarningsDates(symbol: string, years: number = 5) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchData = useCallback(async () => {
+    if (!symbol) return;
+
+    try {
+      setLoading(true);
+      const result = await yahooFinanceClient.getEarningsDates(symbol, years);
+      setData(result);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('未知错误'));
+    } finally {
+      setLoading(false);
+    }
+  }, [symbol, years]);
 
   useEffect(() => {
     fetchData();
